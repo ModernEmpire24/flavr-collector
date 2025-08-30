@@ -45,4 +45,27 @@ app.all("/import", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
+// Trending feed (stub). Replace with API-backed results later.
+app.get("/trending", (_req, res) => {
+  res.json([
+    {
+      id: "yt_1",
+      title: "Ultimate Weeknight Pasta",
+      image: "https://images.unsplash.com/photo-1521389508051-d7ffb5dc8bbf?q=80&w=1600&auto=format&fit=crop",
+      time: 25,
+      source: { platform: "YouTube", url: "https://youtube.com" },
+      ingredients: [{ item:"Pasta", amount:"12 oz" }, { item:"Garlic", amount:"3 cloves" }],
+      steps: [{ text:"Boil pasta" }, { text:"Make sauce" }]
+    },
+    {
+      id: "ig_1",
+      title: "10-Minute Avocado Toast Upgrade",
+      image: "https://images.unsplash.com/photo-1548940740-204726a19be3?q=80&w=1600&auto=format&fit=crop",
+      time: 10,
+      source: { platform: "Instagram", url: "https://instagram.com" },
+      ingredients: [{ item:"Sourdough", amount:"2 slices" }, { item:"Avocado", amount:"1" }],
+      steps: [{ text:"Toast bread" }, { text:"Smash avocado" }]
+    }
+  ]);
+});
 app.listen(PORT, "0.0.0.0", () => console.log("Flavr Collector listening on " + PORT));
