@@ -1,4 +1,3 @@
-// src/server.js
 import express from "express";
 import cors from "cors";
 
@@ -14,16 +13,11 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, uptime: process.uptime() });
 });
 
-// Allow preflight and show clear errors for wrong methods
-app.options("/import", cors());
-app.all("/import", async (req, res) => {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Use POST /import with JSON { url }" });
-  }
+app.post("/import", async (req, res) => {
   const { url } = req.body || {};
   if (!url) return res.status(400).json({ error: "Missing url" });
-  // demo response – replace with real scraping later
-  return res.json({
+  // demo data for now
+  res.json({
     title: "Imported Recipe",
     image: "",
     timeMinutes: 30,
@@ -36,6 +30,4 @@ app.all("/import", async (req, res) => {
 });
 
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Flavr Collector listening on ${PORT}`);
-});
+app.listen(PORT, "0.0.0.0", () => console.log("Flavr Collector listening on " + PORT));
