@@ -2,6 +2,8 @@
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
+import Parser from "rss-parser";                   // <-- ADD
+
 
 const app = express();
 app.use(cors());
@@ -134,3 +136,169 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Flavr Collector listening on ${PORT}`);
 });
+const parser = new Parser({ headers: { "User-Agent": "FlavrCollector/1.0" } });
+
+/** Top recipe blogs (RSS). You can add/remove freely. */
+const BLOG_FEEDS = [
+  "https://www.seriouseats.com/rss",
+  "https://www.bonappetit.com/feed/rss",
+  "https://www.simplyrecipes.com/feed",
+  "https://feeds.feedburner.com/food52-TheAandBofCooking",     // Food52
+  "https://www.bbcgoodfood.com/recipes/feed",                  // BBC Good Food
+  "https://smittenkitchen.com/feed/",                          // Smitten Kitchen
+  "https://pinchofyum.com/feed",                               // Pinch of Yum
+];
+
+/** YouTube channel RSS feeds (replace with your favorites).
+ *  Tip: open a channel, click "View page source", search for "channel_id"
+ *  Then: https://www.youtube.com/feeds/videos.xml?channel_id=YOUR_ID
+ */
+const YOUTUBE_FEEDS = [
+  // "https://www.youtube.com/feeds/videos.xml?channel_id=UChBEbMKI1eCcejTtmI32UEw", // Joshua Weissman (example)
+  // "https://www.youtube.com/feeds/videos.xml?channel_id=UCbpMy0Fg74eXXkvxJrtEn3w", // Food Wishes (example)
+  // "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg", // Bon Appétit (example)
+];
+
+/** Curated social/video links (TikTok, Instagram, X, YT shorts, etc.) */
+const VIDEO_LINKS = [
+  // Add public recipe post URLs here, one per line
+  // "https://www.tiktok.com/@user/video/123...",
+  // "https://www.instagram.com/p/ABC123...",
+];
+
+// Small helper: try platform oEmbed to get title/thumbnail fast
+async function oembedMeta(url) {
+  try {
+    let endpoint = null;
+    const u = url.toLowerCase();
+    if (u.includes("youtube.com") || u.includes("youtu.be")) {
+      endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+    } else if (u.includes("tiktok.com")) {
+      endpoint = `https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`;
+    } else if (u.includes("twitter.com") || u.includes("x.com")) {
+      endpoint = `https://publish.twitter.com/oembed?url=${encodeURIComponent(url)}`;
+    }
+    if (!endpoint) return null;
+    const res = await fetch(endpoint);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+// Quick guess for total minutes if found in title; else default 30.
+function estimateMinutes(title) {
+  const m = String(title || "").match(/(\d+)\s*min/i);
+  return m ? parseInt(m[1], 10) : 30;
+}
+
+// Normalize to Flavr recipe shape
+function toFlavrItem({ title, image, link, platform = "Source" }) {
+  return {
+    id: "disc_" + Math.random().toString(36).slice(2),
+    title: title || "Imported",
+    image: image || "https://images.unsplash.com/photo-1490818387583-1baba5e638af?q=80&w=1600&auto=format&fit=crop",
+    time: estimateMinutes(title),
+    difficulty: "Easy",
+    rating: 0,
+    calories: null,
+    cuisine: "Imported",
+    dietTags: [],
+    source: { platform, handle: "", url: link },
+    videoUrl: link,       // if it’s a video, player will use this
+    ingredients: [],
+    steps: [],
+    tags: ["imported"],
+    saves: 0,
+  };
+}
+
+// NEW: /discover – aggregates blog feeds + optional video links
+app.get("/discover", async (req, res) => {
+  try {
+    const q = (req.query.q || "").toString().toLowerCase();
+    const max = Math.min(parseInt(req.query.limit || "30", 10), 60);
+
+    const out = [];
+
+    // 1) Blog RSS → items
+    for (const feedUrl of BLOG_FEEDS) {
+      try {
+        const feed = await parser.parseURL(feedUrl);
+        for (const item of (feed.items || []).slice(0, 8)) {
+          const img =
+            item.enclosure?.url ||
+            item["media:content"]?.url ||
+            item["media:thumbnail"]?.url ||
+            null;
+
+          const rec = toFlavrItem({
+            title: item.title,
+            image: img,
+            link: item.link,
+            platform: "Blog",
+          });
+          rec.videoUrl = null; // most blog posts are articles, not direct videos
+          out.push(rec);
+        }
+      } catch (e) {
+        console.error("RSS error", feedUrl, e.message);
+      }
+    }
+
+    // 2) YouTube channel feeds → items (videoUrl = link)
+    for (const feedUrl of YOUTUBE_FEEDS) {
+      try {
+        const feed = await parser.parseURL(feedUrl);
+        for (const item of (feed.items || []).slice(0, 5)) {
+          const link = item.link;
+          const meta = await oembedMeta(link); // grab thumbnail/title reliably
+          const rec = toFlavrItem({
+            title: meta?.title || item.title || link,
+            image: meta?.thumbnail_url || null,
+            link,
+            platform: "YouTube",
+          });
+          rec.videoUrl = link; // will play inline in the app
+          out.push(rec);
+        }
+      } catch (e) {
+        console.error("YT RSS error", feedUrl, e.message);
+      }
+    }
+
+    // 3) Curated social/video URLs (TikTok/IG/X/etc.) → use oEmbed
+    for (const link of VIDEO_LINKS) {
+      try {
+        const meta = await oembedMeta(link);
+        const rec = toFlavrItem({
+          title: meta?.title || link,
+          image: meta?.thumbnail_url || null,
+          link,
+          platform: "Video",
+        });
+        rec.videoUrl = link;
+        out.push(rec);
+      } catch (e) {
+        console.error("VIDEO_LINKS error", link, e.message);
+      }
+    }
+
+    // optional extra filter (server-side)
+    const filtered = q
+      ? out.filter(
+          (r) =>
+            r.title.toLowerCase().includes(q) ||
+            (r.tags || []).some((t) => t.toLowerCase().includes(q))
+        )
+      : out;
+
+    // stable-ish sort: newest first if date present else keep insertion order
+    const sorted = filtered; // keep simple for now
+
+    res.json(sorted.slice(0, max));
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "discover_failed" });
+  }
+});
+
