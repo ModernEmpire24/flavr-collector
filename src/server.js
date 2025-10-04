@@ -2,8 +2,7 @@
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
-import Parser from "rss-parser";                   // <-- ADD
-
+import Parser from "rss-parser"; // <-- ADD
 
 const app = express();
 app.use(cors());
@@ -11,7 +10,9 @@ app.use(express.json());
 
 // ——— Health & root ———
 app.get("/", (_req, res) => {
-  res.send("Flavr Collector v2 is running ✅ Use GET /health, GET /trending, POST /import");
+  res.send(
+    "Flavr Collector v2 is running ✅ Use GET /health, GET /trending, POST /import",
+  );
 });
 app.get("/health", (_req, res) => {
   res.json({ ok: true, uptime: process.uptime(), version: "v2" });
@@ -29,20 +30,28 @@ app.post("/import", async (req, res) => {
     sourceLink: url,
     author: "",
     ingredients: ["Example ingredient 1", "Example ingredient 2"],
-    steps: ["Example step 1", "Example step 2"]
+    steps: ["Example step 1", "Example step 2"],
   });
 });
 
 // ——— Trending (YouTube + room to grow) ———
 const YT_KEY = (process.env.YOUTUBE_API_KEY || "").trim();
-const TRENDING_TTL_MS = (Number(process.env.TRENDING_TTL_MIN) || 15) * 60 * 1000;
-const TRENDING_QUERIES = (process.env.TRENDING_QUERIES || "recipe,cooking,meal prep,air fryer").split(",").map(s => s.trim()).filter(Boolean);
+const TRENDING_TTL_MS =
+  (Number(process.env.TRENDING_TTL_MIN) || 15) * 60 * 1000;
+const TRENDING_QUERIES = (
+  process.env.TRENDING_QUERIES || "recipe,cooking,meal prep,air fryer"
+)
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 const cache = { trending: { ts: 0, data: [] } };
 
-async function fetchYouTubeBatch(query, max=12) {
+async function fetchYouTubeBatch(query, max = 12) {
   if (!YT_KEY) return [];
-  const publishedAfter = new Date(Date.now() - 14*24*60*60*1000).toISOString(); // last 14 days
+  const publishedAfter = new Date(
+    Date.now() - 14 * 24 * 60 * 60 * 1000,
+  ).toISOString(); // last 14 days
   const u = new URL("https://www.googleapis.com/youtube/v3/search");
   u.searchParams.set("key", YT_KEY);
   u.searchParams.set("part", "snippet");
@@ -56,26 +65,31 @@ async function fetchYouTubeBatch(query, max=12) {
   if (!r.ok) throw new Error("YouTube API error: " + r.status);
   const json = await r.json();
 
-  return (json.items || []).map(it => {
-    const v = it?.id?.videoId;
-    const s = it?.snippet || {};
-    if (!v) return null;
-    return {
-      id: `yt_${v}`,
-      title: s.title,
-      image: s.thumbnails?.medium?.url || s.thumbnails?.high?.url || "",
-      time: null,
-      source: { platform: "YouTube", url: `https://www.youtube.com/watch?v=${v}` },
-      ingredients: [],
-      steps: [],
-      stats: { channel: s.channelTitle, publishedAt: s.publishedAt }
-    };
-  }).filter(Boolean);
+  return (json.items || [])
+    .map((it) => {
+      const v = it?.id?.videoId;
+      const s = it?.snippet || {};
+      if (!v) return null;
+      return {
+        id: `yt_${v}`,
+        title: s.title,
+        image: s.thumbnails?.medium?.url || s.thumbnails?.high?.url || "",
+        time: null,
+        source: {
+          platform: "YouTube",
+          url: `https://www.youtube.com/watch?v=${v}`,
+        },
+        ingredients: [],
+        steps: [],
+        stats: { channel: s.channelTitle, publishedAt: s.publishedAt },
+      };
+    })
+    .filter(Boolean);
 }
 
 function dedupe(arr) {
   const seen = new Set();
-  return arr.filter(x => {
+  return arr.filter((x) => {
     if (seen.has(x.id)) return false;
     seen.add(x.id);
     return true;
@@ -102,7 +116,7 @@ async function buildTrending() {
   return results;
 }
 
-async function getTrendingFresh(force=false) {
+async function getTrendingFresh(force = false) {
   const age = Date.now() - cache.trending.ts;
   if (!force && age < TRENDING_TTL_MS && cache.trending.data.length) {
     return cache.trending.data;
@@ -129,7 +143,11 @@ app.post("/admin/refresh-trending", async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
   }
   const data = await getTrendingFresh(true);
-  res.json({ ok: true, count: data.length, refreshedAt: new Date().toISOString() });
+  res.json({
+    ok: true,
+    count: data.length,
+    refreshedAt: new Date().toISOString(),
+  });
 });
 
 const PORT = process.env.PORT || 8080;
@@ -143,10 +161,10 @@ const BLOG_FEEDS = [
   "https://www.seriouseats.com/rss",
   "https://www.bonappetit.com/feed/rss",
   "https://www.simplyrecipes.com/feed",
-  "https://feeds.feedburner.com/food52-TheAandBofCooking",     // Food52
-  "https://www.bbcgoodfood.com/recipes/feed",                  // BBC Good Food
-  "https://smittenkitchen.com/feed/",                          // Smitten Kitchen
-  "https://pinchofyum.com/feed",                               // Pinch of Yum
+  "https://feeds.feedburner.com/food52-TheAandBofCooking", // Food52
+  "https://www.bbcgoodfood.com/recipes/feed", // BBC Good Food
+  "https://smittenkitchen.com/feed/", // Smitten Kitchen
+  "https://pinchofyum.com/feed", // Pinch of Yum
 ];
 
 /** YouTube channel RSS feeds (replace with your favorites).
@@ -182,7 +200,9 @@ async function oembedMeta(url) {
     const res = await fetch(endpoint);
     if (!res.ok) return null;
     return await res.json();
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 // Quick guess for total minutes if found in title; else default 30.
@@ -196,7 +216,9 @@ function toFlavrItem({ title, image, link, platform = "Source" }) {
   return {
     id: "disc_" + Math.random().toString(36).slice(2),
     title: title || "Imported",
-    image: image || "https://images.unsplash.com/photo-1490818387583-1baba5e638af?q=80&w=1600&auto=format&fit=crop",
+    image:
+      image ||
+      "https://images.unsplash.com/photo-1490818387583-1baba5e638af?q=80&w=1600&auto=format&fit=crop",
     time: estimateMinutes(title),
     difficulty: "Easy",
     rating: 0,
@@ -204,7 +226,7 @@ function toFlavrItem({ title, image, link, platform = "Source" }) {
     cuisine: "Imported",
     dietTags: [],
     source: { platform, handle: "", url: link },
-    videoUrl: link,       // if it’s a video, player will use this
+    videoUrl: link, // if it’s a video, player will use this
     ingredients: [],
     steps: [],
     tags: ["imported"],
@@ -288,7 +310,7 @@ app.get("/discover", async (req, res) => {
       ? out.filter(
           (r) =>
             r.title.toLowerCase().includes(q) ||
-            (r.tags || []).some((t) => t.toLowerCase().includes(q))
+            (r.tags || []).some((t) => t.toLowerCase().includes(q)),
         )
       : out;
 
@@ -301,4 +323,3 @@ app.get("/discover", async (req, res) => {
     res.status(500).json({ error: "discover_failed" });
   }
 });
-
